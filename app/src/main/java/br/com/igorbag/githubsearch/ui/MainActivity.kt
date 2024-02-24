@@ -1,5 +1,6 @@
 package br.com.igorbag.githubsearch.ui
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -10,9 +11,16 @@ import androidx.recyclerview.widget.RecyclerView
 import br.com.igorbag.githubsearch.R
 import br.com.igorbag.githubsearch.data.GitHubService
 import br.com.igorbag.githubsearch.domain.Repository
+import br.com.igorbag.githubsearch.ui.adapter.RepositoryAdapter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.converter.gson.GsonConverterFactory.*
+import kotlin.coroutines.coroutineContext
 
 class MainActivity : AppCompatActivity() {
-
     lateinit var nomeUsuario: EditText
     lateinit var btnConfirmar: Button
     lateinit var listaRepositories: RecyclerView
@@ -24,55 +32,89 @@ class MainActivity : AppCompatActivity() {
         setupView()
         showUserName()
         setupRetrofit()
+        setupListeners()
         getAllReposByUserName()
     }
 
     // Metodo responsavel por realizar o setup da view e recuperar os Ids do layout
     fun setupView() {
-        //@TODO 1 - Recuperar os Id's da tela para a Activity com o findViewById
+        nomeUsuario = findViewById(R.id.et_nome_usuario)
+        btnConfirmar = findViewById(R.id.btn_confirmar)
+        listaRepositories = findViewById(R.id.rv_lista_repositories)
     }
 
     //metodo responsavel por configurar os listeners click da tela
     private fun setupListeners() {
-        //@TODO 2 - colocar a acao de click do botao confirmar
+        btnConfirmar.setOnClickListener {
+            val userName = nomeUsuario.text.toString()
+            if (userName.isNotEmpty()) {
+                getAllReposByUserName()
+                saveUserLocal()
+            }
+        }
     }
 
 
     // salvar o usuario preenchido no EditText utilizando uma SharedPreferences
     private fun saveUserLocal() {
-        //@TODO 3 - Persistir o usuario preenchido na editText com a SharedPref no listener do botao salvar
+        val userName = nomeUsuario.text.toString()
+        val sharedPref = getPreferences(Context.MODE_PRIVATE)
+        with(sharedPref.edit()) {
+            putString(getString(R.string.shared_pref_user_name), userName)
+            apply()
+        }
     }
 
     private fun showUserName() {
-        //@TODO 4- depois de persistir o usuario exibir sempre as informacoes no EditText  se a sharedpref possuir algum valor, exibir no proprio editText o valor salvo
+        val sharedPref = getPreferences(Context.MODE_PRIVATE)
+        val userName = sharedPref.getString(getString(R.string.shared_pref_user_name), "")
+        nomeUsuario.setText(userName)
     }
 
     //Metodo responsavel por fazer a configuracao base do Retrofit
     fun setupRetrofit() {
         /*
-           @TODO 5 -  realizar a Configuracao base do retrofit
            Documentacao oficial do retrofit - https://square.github.io/retrofit/
            URL_BASE da API do  GitHub= https://api.github.com/
            lembre-se de utilizar o GsonConverterFactory mostrado no curso
         */
+        val retrofit = Retrofit.Builder()
+            .addConverterFactory(GsonConverterFactory.create())
+            .baseUrl("https://api.github.com/")
+            .build()
+        githubApi = retrofit.create(GitHubService::class.java)
     }
 
     //Metodo responsavel por buscar todos os repositorios do usuario fornecido
     fun getAllReposByUserName() {
-        // TODO 6 - realizar a implementacao do callback do retrofit e chamar o metodo setupAdapter se retornar os dados com sucesso
+        val userTyped = nomeUsuario.text.toString()
+        GlobalScope.launch(Dispatchers.IO) {
+            var response = githubApi.getAllRepositoriesByUser(user = userTyped)
+            if (response.isSuccessful) {
+                val responseBody = response.body()
+                if (responseBody != null) {
+                    setupAdapter(responseBody)
+                }
+            }
+        }
     }
 
     // Metodo responsavel por realizar a configuracao do adapter
     fun setupAdapter(list: List<Repository>) {
-        /*
-            @TODO 7 - Implementar a configuracao do Adapter , construir o adapter e instancia-lo
-            passando a listagem dos repositorios
-         */
+        val adapter = RepositoryAdapter(list)
+        adapter.repoItemListener = {
+            openBrowser(it.htmlUrl)
+        }
+        adapter.btnShareListener = {
+            shareRepositoryLink(it.htmlUrl)
+        }
+        GlobalScope.launch(Dispatchers.Main) {
+            listaRepositories.adapter = adapter
+        }
     }
 
 
     // Metodo responsavel por compartilhar o link do repositorio selecionado
-    // @Todo 11 - Colocar esse metodo no click do share item do adapter
     fun shareRepositoryLink(urlRepository: String) {
         val sendIntent: Intent = Intent().apply {
             action = Intent.ACTION_SEND
@@ -85,8 +127,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Metodo responsavel por abrir o browser com o link informado do repositorio
-
-    // @Todo 12 - Colocar esse metodo no click item do adapter
     fun openBrowser(urlRepository: String) {
         startActivity(
             Intent(
